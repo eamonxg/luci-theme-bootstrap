@@ -64,7 +64,7 @@ jobs:
       - name: Prepare and copy ${{ env.THEME }} package
         run: |
           mkdir -p "$TMP/${{ matrix.target.sdk_dir }}/package/${{ env.THEME }}"
-          rsync -a --delete ./ "$TMP/${{ matrix.target.sdk_dir }}/package/${{ env.THEME }}/" --exclude .git --exclude .github --exclude "$TMP"
+          rsync -a --delete ./ "$TMP/${{ matrix.target.sdk_dir }}/package/${{ env.THEME }}/" --exclude .github --exclude "$TMP"
           sed -i 's|include ../../luci.mk|include $(TOPDIR)/feeds/luci/luci.mk|g' "$TMP/${{ matrix.target.sdk_dir }}/package/${{ env.THEME }}/Makefile" || true
           COMMIT_AUTHOR=$(git show -s --format="Author: %an <%ae>")
           COMMIT_DATE=$(git show -s --date=iso-strict --format="Date: %cI")
