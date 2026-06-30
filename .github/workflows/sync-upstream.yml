@@ -1,16 +1,20 @@
 name: Sync Upstream Theme
 
 on:
-    workflow_run:
-      workflows: ["Delete workflows"]
-      types:
-        - completed
+  workflow_dispatch:
+  schedule:
+    - cron: '0 22 * * *' # UTC 22:00, Beijing 06:00
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
+      commit_sha: ${{ steps.commit.outputs.commit_sha }}
+      release: ${{ steps.commit.outputs.release }}
+      release_tag: ${{ steps.commit.outputs.release_tag }}
     steps:
       - name: Set timezone to China
         run: |
@@ -19,7 +23,8 @@ jobs:
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
+          ref: ${{ github.event.repository.default_branch }}
           path: luci-theme-bootstrap
 
       - name: Sync upstream theme
@@ -30,13 +35,16 @@ jobs:
           LATEST_COMMIT=$(cd upstream && git log -1 --pretty=format:"%s" themes/luci-theme-bootstrap)
           LATEST_DATE=$(cd upstream && git log -1 --pretty=format:"%cI" themes/luci-theme-bootstrap)
           LATEST_AUTHOR=$(cd upstream && git log -1 --pretty="%an <%ae>" themes/luci-theme-bootstrap)
-          echo "latest_commit=$LATEST_COMMIT" >> $GITHUB_ENV
-          echo "latest_date=$LATEST_DATE" >> $GITHUB_ENV
-          echo "latest_author=$LATEST_AUTHOR" >> $GITHUB_ENV
+          echo "latest_commit=$LATEST_COMMIT" >> "$GITHUB_ENV"
+          echo "latest_date=$LATEST_DATE" >> "$GITHUB_ENV"
+          echo "latest_author=$LATEST_AUTHOR" >> "$GITHUB_ENV"
           cp -r upstream/themes/luci-theme-bootstrap/* .
           rm -rf upstream
       
       - name: Commit and push changes
+        id: commit
+        env:
+          TARGET_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           ls -la
           cd luci-theme-bootstrap
@@ -45,7 +53,25 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "${{ env.latest_commit }}" --author="${{ env.latest_author }}" --date="${{ env.latest_date }}"
-            git push
+            git commit -m "$latest_commit" --author="$latest_author" --date="$latest_date"
+            commit_sha=$(git rev-parse HEAD)
+            release_tag="v$(TZ=Asia/Shanghai date +%Y%m%d)"
+            git push origin "HEAD:${TARGET_BRANCH}"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "commit_sha=${commit_sha}" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
           fi
+
+  build:
+    needs: sync
+    if: ${{ needs.sync.outputs.changed == 'true' }}
+    uses: ./.github/workflows/build-and-release-bootstrap.yml
+    with:
+      commit_ref: ${{ needs.sync.outputs.commit_sha }}
+      release: ${{ needs.sync.outputs.release }}
+      release_tag: ${{ needs.sync.outputs.release_tag }}
+    permissions:
+      contents: write
