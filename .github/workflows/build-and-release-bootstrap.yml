@@ -40,11 +40,12 @@ permissions:
 
 jobs:
   build:
-    name: build luci-theme-bootstrap ${{ matrix.pkg_type }}
+    name: build luci-theme-bootstrap ${{ matrix.sdk }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        pkg_type: [ipk, apk]
+        sdk: ["24.10.4", "25.12.5"]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -59,17 +60,21 @@ jobs:
           COMMIT_HASH=$(git show -s --format="Hash: %H")
           printf 'Latest commit:\n%s\n%s\n%s\n%s\n' "$COMMIT_AUTHOR" "$COMMIT_DATE" "$COMMIT_MESSAGE" "$COMMIT_HASH" > .release-body.md
 
-      - uses: eamonxg/build-luci-package@master
+      - id: slug
+        run: echo "ref=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+      - id: build
+        uses: eamonxg/build-luci-package@v2
         with:
-          package: luci-theme-bootstrap
-          pkg_type: ${{ matrix.pkg_type }}
-          skip_checkout: "true"
-          prep_script: |
-            ./scripts/feeds update -f base luci
-            ./scripts/feeds install -p luci-base
-            sed -i 's|include ../../luci.mk|include $(TOPDIR)/feeds/luci/luci.mk|g' "package/$PACKAGE/Makefile" || true
-          artifact_paths: |
-            bin/packages/$ARCH/base/*luci-theme-bootstrap*.[ai]pk
-          release_body_path: .release-body.md
+          sdk: ${{ matrix.sdk }}
+          packages: '[{"pkg":"luci-theme-bootstrap","path":"."}]'
+      - uses: actions/upload-artifact@v6
+        with:
+          name: luci-theme-bootstrap-${{ steps.slug.outputs.ref }}-${{ steps.build.outputs.pkg_type }}
+          path: out/*.[ai]pk
+      - uses: eamonxg/build-luci-package/release@v2
+        with:
+          name: luci-theme-bootstrap
+          files: out/*.[ai]pk
+          body_path: .release-body.md
           release: ${{ inputs.release }}
           release_tag: ${{ inputs.release_tag }}
